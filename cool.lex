@@ -138,7 +138,7 @@ This rule must do what we skipped before.
 3. See if the string is too long and return and error.
 
  */
-<STRING>"/		      	{
+<STRING>/"		      	{
                                   yybegin(YYInitial)
 				                  String currentString = yytext();
 
