@@ -1,0 +1,245 @@
+/*
+ *  cool.cup
+ *              Parser definition for the COOL language.
+ *
+ */
+
+import java_cup.runtime.*;
+
+/* Stuff enclosed in {: :} is copied verbatim to the class containing
+all parser actions.  All the extra variables/functions you want to use
+in the semantic actions should go here.  Don't remove or modify anything
+that was there initially.  */
+
+action code {: 
+
+    int curr_lineno() {
+	return ((CoolTokenLexer)parser.getScanner()).curr_lineno();
+    }
+
+    AbstractSymbol curr_filename() {
+	return ((CoolTokenLexer)parser.getScanner()).curr_filename();
+    }
+:} 
+
+/************************************************************************/
+/*                DONT CHANGE ANYTHING IN THIS SECTION                  */
+
+parser code {:
+    int omerrs = 0;
+
+    public void syntax_error(Symbol cur_token) {
+        int lineno = action_obj.curr_lineno();
+	String filename = action_obj.curr_filename().getString();
+        System.err.print("\"" + filename + "\", line " + lineno + 
+		         ": parse error at or near ");
+        Utilities.printToken(cur_token);
+	omerrs++;
+	if (omerrs>50) {
+	   System.err.println("More than 50 errors");
+	   System.exit(1);
+	}
+    }
+
+    public void unrecovered_syntax_error(Symbol cur_token) {
+    }
+:}
+
+/* Declare the terminals; a few have types for associated lexemes.  The
+token ERROR is never used in the parser; thus, it is a parse error when
+the lexer returns it.  */
+
+terminal CLASS, ELSE, FI, IF, IN, INHERITS, LET, LET_STMT, LOOP, POOL, THEN, WHILE;
+terminal CASE, ESAC, OF, DARROW, NEW, ISVOID;
+terminal ASSIGN, NOT, LE, ERROR;
+terminal PLUS, DIV, MINUS, MULT, EQ, LT, DOT, NEG, COMMA, SEMI, COLON;
+terminal LPAREN, RPAREN, AT, LBRACE, RBRACE;
+terminal AbstractSymbol STR_CONST, INT_CONST;
+terminal Boolean BOOL_CONST;
+terminal AbstractSymbol TYPEID, OBJECTID;
+
+/*  DON'T CHANGE ANYTHING ABOVE THIS LINE, OR YOUR PARSER WONT WORK       */
+/**************************************************************************/
+
+   /* Complete the nonterminal list below, giving a type for the semantic
+      value of each non terminal. (See the CUP documentation for details. */
+
+nonterminal programc program;
+nonterminal Classes class_list;
+nonterminal class_c class;
+nonterminal Features dummy_feature_list;
+nonterminal Feature feature;
+nonterminal Formals dummy_formal_list;
+nonterminal Formal formal;
+nonterminal Expressions dummy_expression_list;
+nonterminal Expression expression;
+nonterminal            optionalAssignment;
+
+/* Precedence declarations go here. */
+
+precedence left DOT;
+precedence left AT;
+precedence left ISVOID;
+precedence left MULT DIV;
+precedence left PLUS MINUS;
+precedence      LT EQ LE;
+precedence left NOT;
+precedence right  ASSIGN;
+
+
+
+program	
+	::= class_list:cl
+	    {: RESULT = new programc(curr_lineno(), cl); :}
+        ;
+
+class_list
+	/* single class */
+	::= class:c
+	    {: RESULT = (new Classes(curr_lineno())).appendElement(c); :}
+	/* several classes */
+	| class_list:cl class:c
+	    {: RESULT = cl.appendElement(c); :}
+	;
+
+/* If no parent is specified, the class inherits from the Object class */
+class
+	::= CLASS TYPEID:n LBRACE dummy_feature_list:f RBRACE SEMI
+	    {: RESULT = new class_c(curr_lineno(), n, 
+		                   AbstractTable.idtable.addString("Object"), 
+				   f, curr_filename()); :}
+	| CLASS TYPEID:n INHERITS TYPEID:p LBRACE dummy_feature_list:f RBRACE SEMI
+	    {: RESULT = new class_c(curr_lineno(), n, p, f, curr_filename()); :}
+	;
+
+/* Feature list may be empty, but no empty features in list. */
+dummy_feature_list
+	::= /* empty */
+	    {: RESULT = new Features(curr_lineno()); :}
+    |  feature:f
+        {: RESULT = (new Features(curr_lineno())).appendElement(f); :}
+    |  dummy_feature_list:dfl feature:f
+        {: RESULT = dfl.appendElement(f); :}
+	;
+
+feature
+    ::= /*  no parameters */
+        OBJECTID:n LPAREN RPAREN COLON TYPEID:r LBRACE expression:e RBRACE
+        {: RESULT = new Feature(curr_lineno(), n, new Features(curr_lineno()), r, e);  :}
+    |
+         /* One parameter or many. */
+        OBJECTID:n LPAREN dummy_feature_list:dfl RPAREN COLON TYPEID:r LBRACE expression:e RBRACE
+        {: RESULT = new Feature(curr_lineno(), n, dfl, r, e); :}
+
+    |   OBJECTID:n COLON TYPEID:t optionalAssignment:e
+        {: RESULT = new Feature(curr_lineno(), n, t, e); :}
+
+optionalAssignment
+    ::= ASSIGN expression
+
+
+dummy_feature_list
+	::= /* empty */
+	    {: RESULT = new Formals(curr_lineno()); :}
+    |  formal:f
+        {: RESULT = (new Formals(curr_lineno())).appendElement(f); :}
+    |  dummy_formal_list:dfl feature:f
+        {: RESULT = dfl.appendElement(f); :}
+	;
+
+
+formal
+    ::= 
+        OBJECTID:n COLON TYPEID:t
+        {: RESULT = new Formal(curr_lineno(), n, t); :}
+
+
+dummy_expression_list
+	::= /* empty */
+	    {: RESULT = new Expressions(curr_lineno()); :}
+    |  expression:e
+        {: RESULT = (new Expressions(curr_lineno())).appendElement(e); :}
+    |  dummy_expression_list:del expression:e
+        {: RESULT = del.appendElement(e); :}
+	;
+    
+expression
+    ::=  
+        OBJECTID:n ASSIGN expression:e
+        {: RESULT = new Expression(curr_lineno(), n, e); :}
+    |
+        expression:e AT TYPEID:t DOT OBJECTID:id LPAREN dummy_expression_list:del RPAREN
+        {: RESULT = new Expression(curr_lineno(), e, t, id ,del); :}
+    |
+        TYPEID:t LPAREN dummy_expression_list:del RPAREN
+        {: RESULT = new Expression(curr_lineno(), t, del); :}
+    |
+        IF expression:predicate THEN expression:then ELSE expression:else
+        {: RESULT = new Expression(curr_lineno(), predicate, then, else); :}
+    |   WHILE expression:predicate LOOP  expression:body POOL
+        {: RESULT = new Expression(curr_lineno(), predicate, body); :}
+    |   LBRACE dummy_expression_list:expressions RPAREN SEMI
+        {: RESULT = new Expression(curr_lineno(), expressions); :}
+    |
+        LET OBJECTID:n COLON TYPEID:t optionalAssignment:init optional_init_seq IN expression:body
+        {:  RESULT = new Expression(curr_lineno(), n, t, init, body);  :}
+    |   CASE expression:e OF dummy_cases_list:cases ESAC
+        {:  RESULT = new Expression(e, cases); :}
+    |   expression:exp1 PLUS expression:exp2
+        {:  RESULT = new Expression(exp1, exp2); :}
+    |   expression:exp1 MINUS expression:exp2
+        {:  RESULT = new Expression(exp1, exp2); :}
+    |   expression:exp1 MULT expression:exp2
+        {:  RESULT = new Expression(exp1, exp2); :}
+    |   expression:exp1 DIV expression:exp2
+        {:  RESULT = new Expression(exp1, exp2); :}
+    |   NEG expression:exp
+        {:  RESULT = new Expression(exp1); :}
+    |   expression:exp1 LT expression:exp2
+        {:  RESULT = new Expression(exp1, exp2); :}
+    |   expression:exp1 EQ expression:exp2
+        {:  RESULT = new Expression(exp1, exp2); :}
+    |   expression:exp1 LE expression:exp2
+        {:  RESULT = new Expression(exp1, exp2); :}
+    |   NOT expression:exp1
+        {:  RESULT = new Expression(exp1); :}
+    |   INT_CONST:int
+        {:  RESULT = new Expression(int); :}
+    |   BOOL_CONST:bool
+        {:  RESULT = new Expression(bool); :}
+    |   STR_CONST:string
+        {:  RESULT = new Expression(string); :}
+    |   NEW TYPEID:t 
+        {:  RESULT = new Expression(t); :}
+    |   ISVOID expression:e
+        {:  RESULT = new Expression(e); :}
+    |   OBJECTID:object
+        {:  RESULT = new Expression(object); :}
+    |
+        {:  RESULT = new Expression(); :}   
+
+
+
+optional_init_seq 
+    ::= 
+        COMMA optional_multiple_assignment
+      | empty
+
+optional_multiple_assignment 
+    ::=
+          OBJECTID:n COLON TYPEID:t optionalAssignment
+        
+        
+dummy_cases_list
+	::= /* empty */
+	    {: RESULT = new Cases(curr_lineno()); :}
+    |  case:c
+        {: RESULT = (new Cases(curr_lineno())).appendElement(c); :}
+    |  dummy_cases_list:dcl case:c
+        {: RESULT = dcl.appendElement(c); :}
+	;
+
+case
+    ::=
+       OBJECTID:n COLON TYPEID:t DARROW expression:e SEMI
+       {: RESULT = new Case(curr_lineno(), n, t, e); :}
